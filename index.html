@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concept Bank</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F1E7; --surface:#FFFFFF; --ink:#211D18; --muted:#79705F;
+    --accent:#2F5D50; --stamp:#B5533C; --line:#E4DBC4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Inter',ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh;
+  }
+  .serif{font-family:'Source Serif 4',Georgia,serif;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;}
+
+  .wrap{max-width:680px;margin:0 auto;padding:56px 20px 80px;}
+
+  .masthead{margin-bottom:8px;}
+  .masthead .eyebrow{display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:0.02em;margin-bottom:14px;}
+  .masthead .eyebrow .count{color:var(--accent);font-weight:500;}
+  .masthead h1{font-size:38px;line-height:1.05;margin:0 0 10px;font-weight:600;letter-spacing:-0.01em;}
+  .masthead p{margin:0 0 30px;color:var(--muted);font-size:14.5px;line-height:1.6;max-width:46ch;}
+
+  .search-row{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 14px;margin-bottom:8px;}
+  .search-row svg{flex:none;color:var(--muted);}
+  .search-row input{border:none;outline:none;background:none;width:100%;font-size:14.5px;color:var(--ink);font-family:inherit;}
+  .search-row input::placeholder{color:#A69C89;}
+
+  .list{border-top:1px solid var(--line);margin-top:34px;}
+  .row{display:flex;align-items:baseline;gap:16px;padding:18px 2px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit;}
+  .row:hover .name{color:var(--accent);}
+  .row .idx{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);flex:none;width:28px;padding-top:3px;}
+  .row .body{flex:1;min-width:0;}
+  .row .name{font-family:'Source Serif 4',Georgia,serif;font-size:19px;font-weight:600;letter-spacing:-0.005em;}
+  .row .desc{font-size:13px;color:var(--muted);margin-top:3px;line-height:1.5;}
+  .row .tags{flex:none;display:flex;gap:6px;align-items:flex-start;padding-top:4px;}
+  .tag{font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:lowercase;color:var(--stamp);border:1px solid currentColor;border-radius:999px;padding:2px 8px;opacity:0.85;}
+  .row .go{flex:none;color:var(--muted);font-size:18px;padding-top:2px;}
+
+  .empty-state{padding:60px 4px;text-align:center;color:var(--muted);font-size:14px;}
+
+  .footnote{margin-top:44px;font-size:12.5px;color:var(--muted);line-height:1.6;border-top:1px solid var(--line);padding-top:20px;}
+  .footnote code{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
+
+  @media (max-width:480px){
+    .masthead h1{font-size:30px;}
+    .row .tags{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="eyebrow">Concept bank <span class="count" id="entryCount">0 entries</span></div>
+    <h1 class="serif">Every idea, in one place.</h1>
+    <p>A running archive of standalone concepts. Pick one below to open it — each lives on its own, independent of everything else here.</p>
+  </div>
+
+  <div class="search-row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="searchInput" placeholder="Search concepts…" autocomplete="off">
+  </div>
+
+  <div class="list" id="list"></div>
+  <div class="footnote">
+    New concept? Drop a folder under <code>/concepts/your-folder/</code> with its own <code>index.html</code>, then add one line to the <code>CONCEPTS</code> list at the top of the script in this page.
+  </div>
+</div>
+
+<script>
+  // ---- add one entry per concept here ----
+  // path: folder under /concepts/ (must contain an index.html)
+  // tags: optional, shown as small labels
+  const CONCEPTS = [
+    { name: 'Example one',  path: 'example-one',  desc: 'Placeholder — replace with a real concept.', tags: ['draft'] },
+    { name: 'Example two',  path: 'example-two',  desc: 'Placeholder — replace with a real concept.', tags: ['draft'] },
+  ];
+
+  const list = document.getElementById('list');
+  const searchInput = document.getElementById('searchInput');
+  const entryCount = document.getElementById('entryCount');
+
+  function render(filter){
+    const q = (filter || '').trim().toLowerCase();
+    const items = CONCEPTS.filter(c =>
+      !q || c.name.toLowerCase().includes(q) || (c.tags||[]).some(t=>t.toLowerCase().includes(q))
+    );
+    entryCount.textContent = `${CONCEPTS.length} ${CONCEPTS.length===1?'entry':'entries'}`;
+
+    if(items.length===0){
+      list.innerHTML = '<div class="empty-state">No concepts match that search.</div>';
+      return;
+    }
+    list.innerHTML = items.map((c,i) => `
+      <a class="row" href="concepts/${encodeURIComponent(c.path)}/index.html">
+        <span class="idx mono">${String(i+1).padStart(2,'0')}</span>
+        <span class="body">
+          <span class="name">${escapeHtml(c.name)}</span>
+          ${c.desc ? `<div class="desc">${escapeHtml(c.desc)}</div>` : ''}
+        </span>
+        <span class="tags">${(c.tags||[]).map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('')}</span>
+        <span class="go">&rarr;</span>
+      </a>
+    `).join('');
+  }
+  function escapeHtml(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  searchInput.addEventListener('input', e => render(e.target.value));
+  render('');
+</script>
+</body>
+</html>
