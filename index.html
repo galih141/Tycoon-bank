@@ -10,7 +10,7 @@
 <style>
   :root{
     --bg:#F5F1E7; --surface:#FFFFFF; --ink:#211D18; --muted:#79705F;
-    --accent:#2F5D50; --stamp:#B5533C; --line:#E4DBC4;
+    --accent:#2F5D50; --stamp:#B5533C; --line:#E4DBC4; --err:#B5533C;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -46,7 +46,11 @@
   .tag{font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:lowercase;color:var(--stamp);border:1px solid currentColor;border-radius:999px;padding:2px 8px;opacity:0.85;}
   .row .go{flex:none;color:var(--muted);font-size:18px;padding-top:2px;}
 
-  .empty-state{padding:60px 4px;text-align:center;color:var(--muted);font-size:14px;}
+  .state{padding:60px 4px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;}
+  .state.error{color:var(--err);}
+  .state a{color:inherit;}
+  .spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);display:inline-block;margin-right:8px;vertical-align:-3px;animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
 
   .footnote{margin-top:44px;font-size:12.5px;color:var(--muted);line-height:1.6;border-top:1px solid var(--line);padding-top:20px;}
   .footnote code{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
@@ -61,44 +65,108 @@
 <div class="wrap">
 
   <div class="masthead">
-    <div class="eyebrow">Concept bank <span class="count" id="entryCount">0 entries</span></div>
+    <div class="eyebrow">Concept bank <span class="count" id="entryCount"></span></div>
     <h1 class="serif">Every idea, in one place.</h1>
     <p>A running archive of standalone concepts. Pick one below to open it — each lives on its own, independent of everything else here.</p>
   </div>
 
   <div class="search-row">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input type="text" id="searchInput" placeholder="Search concepts…" autocomplete="off">
+    <input type="text" id="searchInput" placeholder="Search concepts…" autocomplete="off" disabled>
   </div>
 
-  <div class="list" id="list"></div>
+  <div class="list" id="list">
+    <div class="state" id="loadingState"><span class="spinner"></span>Looking through <code>/concepts</code>…</div>
+  </div>
   <div class="footnote">
-    New concept? Drop a folder under <code>/concepts/your-folder/</code> with its own <code>index.html</code>, then add one line to the <code>CONCEPTS</code> list at the top of the script in this page.
+    New concept? Just add a folder under <code>/concepts/your-folder/</code> with its own <code>index.html</code> and push it — it shows up here automatically, no file to edit. Add an optional <code>meta.json</code> next to it for a nicer name, description, and tags.
   </div>
 </div>
 
 <script>
-  // ---- add one entry per concept here ----
-  // path: folder under /concepts/ (must contain an index.html)
-  // tags: optional, shown as small labels
-  const CONCEPTS = [
-    { name: 'Example one',  path: 'example-one',  desc: 'Placeholder — replace with a real concept.', tags: ['draft'] },
-    { name: 'Example two',  path: 'example-two',  desc: 'Placeholder — replace with a real concept.', tags: ['draft'] },
-  ];
-
   const list = document.getElementById('list');
   const searchInput = document.getElementById('searchInput');
   const entryCount = document.getElementById('entryCount');
+  let allConcepts = [];
+
+  // ---- figure out which GitHub repo we're being served from ----
+  function detectRepoContext(){
+    const host = location.hostname;
+    if(!host.endsWith('.github.io')) return null;
+    const owner = host.split('.')[0];
+    const segments = location.pathname.split('/').filter(Boolean);
+    const repo = segments.length > 0 ? segments[0] : `${owner}.github.io`;
+    return { owner, repo };
+  }
+
+  function prettify(folderName){
+    return folderName.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  async function loadConcepts(){
+    const ctx = detectRepoContext();
+    if(!ctx){
+      showState('error',
+        `Auto-detection needs this page hosted on GitHub Pages. Opened locally (<code class="mono">file://</code>), there's no API to ask what folders exist — open each concept's <code class="mono">index.html</code> directly instead.`);
+      return;
+    }
+    try{
+      const res = await fetch(`https://api.github.com/repos/${ctx.owner}/${ctx.repo}/contents/concepts`);
+      if(res.status === 404){
+        showState('error', `No <code class="mono">/concepts</code> folder found yet in <code class="mono">${ctx.owner}/${ctx.repo}</code>. Add one with a subfolder inside and refresh.`);
+        return;
+      }
+      if(!res.ok){
+        if(res.status === 403){
+          showState('error', `GitHub's API rate limit was hit while listing concepts. Wait a bit and refresh.`);
+        } else {
+          showState('error', `Couldn't list concepts (GitHub API returned ${res.status}). Refresh to try again.`);
+        }
+        return;
+      }
+      const items = await res.json();
+      const folders = items.filter(i => i.type === 'dir');
+      if(folders.length === 0){
+        showState('empty', `No concepts yet. Add a folder under <code class="mono">/concepts/</code> with an <code class="mono">index.html</code> inside.`);
+        return;
+      }
+
+      allConcepts = await Promise.all(folders.map(async f => {
+        let meta = {};
+        try{
+          const metaRes = await fetch(`concepts/${encodeURIComponent(f.name)}/meta.json`);
+          if(metaRes.ok) meta = await metaRes.json();
+        }catch(_){ /* no meta.json, or not hosted the way we expect — fall back below */ }
+        return {
+          path: f.name,
+          name: meta.name || prettify(f.name),
+          desc: meta.desc || '',
+          tags: Array.isArray(meta.tags) ? meta.tags : []
+        };
+      }));
+      allConcepts.sort((a,b) => a.name.localeCompare(b.name));
+
+      searchInput.disabled = false;
+      render('');
+    }catch(e){
+      showState('error', `Couldn't reach GitHub's API to list concepts. Check your connection and refresh.`);
+    }
+  }
+
+  function showState(kind, html){
+    entryCount.textContent = '';
+    list.innerHTML = `<div class="state${kind==='error' ? ' error' : ''}">${html}</div>`;
+  }
 
   function render(filter){
     const q = (filter || '').trim().toLowerCase();
-    const items = CONCEPTS.filter(c =>
+    const items = allConcepts.filter(c =>
       !q || c.name.toLowerCase().includes(q) || (c.tags||[]).some(t=>t.toLowerCase().includes(q))
     );
-    entryCount.textContent = `${CONCEPTS.length} ${CONCEPTS.length===1?'entry':'entries'}`;
+    entryCount.textContent = `${allConcepts.length} ${allConcepts.length===1?'entry':'entries'}`;
 
     if(items.length===0){
-      list.innerHTML = '<div class="empty-state">No concepts match that search.</div>';
+      list.innerHTML = '<div class="state">No concepts match that search.</div>';
       return;
     }
     list.innerHTML = items.map((c,i) => `
@@ -116,7 +184,7 @@
   function escapeHtml(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
   searchInput.addEventListener('input', e => render(e.target.value));
-  render('');
+  loadConcepts();
 </script>
 </body>
 </html>
